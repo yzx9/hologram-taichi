@@ -14,10 +14,10 @@ wavelength = 670 * nm  # wavelength of the red light
 class Renderer:
     def __init__(self, src: str) -> None:
         data, _ = nrrd.read(src)
-        self.field = ti.field(ti.f32, shape=data.shape)
-        self.field.from_numpy(data / 256)
+        field = ti.field(ti.f32, shape=data.shape)
+        field.from_numpy(data / 256)
 
-        self.volume = Volume(self.field, tm.vec3(-5, -5, 1), tm.vec3(10, 10, 0.2))
+        self.volume = Volume(field, tm.vec3(-5, -5, 1), tm.vec3(10, 10, 0.2))
 
         self.width, self.height = 640, 480
         aspect_ratio = self.width / self.height
@@ -44,11 +44,14 @@ class Renderer:
                 self.image[i, j] = ti.zero(value)
 
     def run(self):
+        self.update_image()
+
         gui = ti.GUI("Window Title", (self.width, self.height))
         while gui.running:
-            self.update_image()
             gui.set_image(self.image)
             gui.show()
+
+        gui.show("tmp.png")
 
     @ti.kernel
     def test_run(self):

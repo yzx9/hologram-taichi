@@ -1,6 +1,5 @@
 from typing import Tuple
 
-import nrrd
 import taichi as ti
 import taichi.math as tm
 
@@ -93,24 +92,24 @@ class Volume:
             ret: ti.f32 = self.data[0, 0, 0]
 
             for i, j, k in self.data:
-                ret = ti.atomic_min(ret, self.data[i, j, k])
+                ti.atomic_min(ret, self.data[i, j, k])
 
             return ret
 
         self.data_min = data_min()
 
     @ti.func
-    def sample(self, point: tm.vec3) -> Tuple[float, bool]:
-        coord = ti.round((point - self.origin) / self.grid_size, dtype=ti.i32)
+    def sample(self, p) -> Tuple[float, bool]:
         value = ti.zero(self.data[0, 0, 0])
         hit = False
         if (
-            0 <= coord[0] < self.data.shape[0]
-            and 0 <= coord[1] < self.data.shape[1]
-            and 0 <= coord[2] < self.data.shape[2]
+            0 <= p[0] < self.data.shape[0]
+            and 0 <= p[1] < self.data.shape[1]
+            and 0 <= p[2] < self.data.shape[2]
         ):
-            value = self.data[coord[0], coord[1], coord[2]]
+            value = self.data[p]
             hit = True
+
         return value, hit
 
     @ti.func
@@ -137,73 +136,24 @@ class Volume:
         # print("ray", ray.origin, ray.direction)
         # print("t", t0, t1)
 
-        pmax = ray.cast(t0)
+        coord_max = ti.Vector([0, 0, 0], dt=ti.i32)
         vmax = self.data_min
         hit = False
         if t0 <= t1:
             # there is intersection between the ray and the AABB
-            step = 0.002
+            step = 0.003
             hit = True
 
-            for i in range(1000):
+            for i in range(100):
                 t = t0 + i * step
                 if t > t1:
                     break
 
                 p = ray.cast(t)
-                v, ok = self.sample(p)
+                coord = ti.round((p - self.origin) / self.grid_size, dtype=ti.i32)
+                v, ok = self.sample(coord)
                 if ok and v > vmax:
-                    pmax = p
+                    coord_max = coord
                     vmax = v
 
-        return vmax, pmax, hit
-
-
-@ti.data_oriented
-class Renderer:
-    def __init__(self, src: str) -> None:
-        data, _ = nrrd.read(src)
-        self.field = ti.field(ti.f32, shape=data.shape)
-        self.field.from_numpy(data / 256)
-
-        self.volume = Volume(self.field, tm.vec3(-5, -5, 1), tm.vec3(10, 10, 0.2))
-
-        self.width, self.height = 640, 480
-        aspect_ratio = self.width / self.height
-        origin = tm.vec3(0, 0, 0)
-        direction = tm.vec3(0, 0, 1)
-        up = tm.vec3(0, 1, 0)
-        self.camera = Camera(origin, direction, up, 60, aspect_ratio)
-        self.image = ti.field(ti.f32, shape=(self.width, self.height))
-
-    @ti.kernel
-    def update_image(self):
-        for i, j in self.image:
-            # calcute the ray
-            x = (i + 0.5) / self.width
-            y = (j + 0.5) / self.height
-            ray = self.camera.generate_ray(x, y)
-
-            # cast the ray
-            value, point, hit = self.volume.cast_mip(ray)
-            # print(value, point, hit)
-            if hit:
-                self.image[i, j] = value
-            else:
-                self.image[i, j] = ti.zero(value)
-
-    def run(self):
-        gui = ti.GUI("Window Title", (self.width, self.height))
-        while gui.running:
-            self.update_image()
-            gui.set_image(self.image)
-            gui.show()
-
-    @ti.kernel
-    def test_run(self):
-        # calcute the ray
-        ray = Ray(tm.vec3(0, 0, 0), tm.vec3(0, 0, 1))
-
-        # cast the ray
-        value, point, hit = self.volume.cast_mip(ray)
-        print("cast", value, point, hit)
+        return vmax, coord_max, hit
