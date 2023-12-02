@@ -153,10 +153,10 @@ class Volume:
 
     @ti.func
     def _transform(self, T1: T, T2: T) -> Tuple[T, T, tm.vec3, tm.vec3]:
-        aabb_min = apply(self.aabb_min, T2)
-        aabb_max = apply(self.aabb_max, T2)
+        aabb_min = apply_T(self.aabb_min, T2)
+        aabb_max = apply_T(self.aabb_max, T2)
         aabb_min, aabb_max = tm.min(aabb_min, aabb_max), tm.max(aabb_min, aabb_max)
-        T_new, T_inv = merge_transformation(T1, T2)
+        T_new, T_inv = merge_T(T1, T2)
         return T_new, T_inv, aabb_min, aabb_max
 
     # Ray Casting
@@ -219,25 +219,23 @@ class Volume:
 
     @ti.func
     def to_world(self, indices: Indices) -> tm.vec3:
-        return apply(indices, self.T)
+        return apply_T(indices + 0.5, self.T)
 
     @ti.func
     def to_indices(self, p: tm.vec3) -> Indices:
-        local = apply(p, self.T_inv)
-        indices = ti.round(local, dtype=ti.i32)
-        return indices[:3]
+        return ti.floor(apply_T(p, self.T_inv), dtype=ti.i32)
 
 
 @ti.func
-def apply(p, T):
+def apply_T(p, T1) -> tm.vec3:
     p4 = tm.vec4(*p, 1)
-    transformed = T @ p4
+    transformed = T1 @ p4
     transformed /= transformed[3]
     return transformed[:3]
 
 
 @ti.func
-def merge_transformation(T1: T, T2: T) -> Tuple[T, T]:
+def merge_T(T1: T, T2: T) -> Tuple[T, T]:
     """Merge new transformation matrix."""
     T_new = T2 @ T1
     T_inv = tm.inverse(T_new)
