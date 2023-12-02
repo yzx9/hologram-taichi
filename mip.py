@@ -1,3 +1,5 @@
+import math
+
 import nrrd
 import taichi as ti
 import taichi.math as tm
@@ -17,11 +19,11 @@ class Renderer:
         field = ti.field(ti.f32, shape=data.shape)
         field.from_numpy(data / 256)
 
-        self.volume = Volume(field, tm.vec3(-5, -5, 1), tm.vec3(10, 10, 0.2))
+        self.volume = Volume(field, tm.vec3(-5, -5, 0), tm.vec3(10, 10, 0.2))
 
-        self.width, self.height = 640, 480
+        self.width, self.height = 1920, 1080
         aspect_ratio = self.width / self.height
-        origin = tm.vec3(0, 0, 0)
+        origin = tm.vec3(0, 0, -1)
         direction = tm.vec3(0, 0, 1)
         up = tm.vec3(0, 1, 0)
         self.camera = Camera(origin, direction, up, 60, aspect_ratio)
@@ -44,6 +46,7 @@ class Renderer:
                 self.image[i, j] = ti.zero(value)
 
     def run(self):
+        self.volume.rotate(0, 0, 45 / 180 * math.pi)
         self.update_image()
 
         gui = ti.GUI("Window Title", (self.width, self.height))
