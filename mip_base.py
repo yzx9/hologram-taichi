@@ -117,29 +117,47 @@ class Volume:
 
     def translate(self, dx: float, dy: float, dz: float):
         """Translate the volume."""
-        self.T, self.T_inv = translate(self.T, dx, dy, dz)
-        self._update_aabb()
+        self.T, self.T_inv, self.aabb_min, self.aabb_max = self._translate(
+            self.T, dx, dy, dz
+        )
 
     def scale(self, sx: float, sy: float, sz: float):
         """Scale the volume."""
-        self.T, self.T_inv = scale(self.T, sx, sy, sz)
-        self._update_aabb()
+        self.T, self.T_inv, self.aabb_min, self.aabb_max = self._scale(
+            self.T, sx, sy, sz
+        )
 
     def rotate(self, ang_x: float, ang_y: float, ang_z: float):
         """Rotate the volume."""
-        self.T, self.T_inv = rotate(self.T, ang_x, ang_y, ang_z)
-        self._update_aabb()
+        self.T, self.T_inv, self.aabb_min, self.aabb_max = self._rotate(
+            self.T, ang_x, ang_y, ang_z
+        )
 
-    def _update_aabb(self):
-        @ti.kernel
-        def aabb() -> Tuple[tm.vec3, tm.vec3]:
-            shape = self.data.shape
-            aabb_min = self.to_world(ti.Matrix([0, 0, 0]))
-            aabb_max = self.to_world(ti.Matrix([shape[0], shape[1], shape[2]]))
-            aabb_min, aabb_max = tm.min(aabb_min, aabb_max), tm.max(aabb_min, aabb_max)
-            return aabb_min, aabb_max
+    @ti.kernel
+    def _translate(
+        self, T1: T, dx: float, dy: float, dz: float
+    ) -> Tuple[T, T, tm.vec3, tm.vec3]:
+        return self._transform(T1, tm.translate(dx, dy, dz))
 
-        self.aabb_min, self.aabb_max = aabb()
+    @ti.kernel
+    def _scale(
+        self, T1: T, sx: float, sy: float, sz: float
+    ) -> Tuple[T, T, tm.vec3, tm.vec3]:
+        return self._transform(T1, tm.scale(sx, sy, sz))
+
+    @ti.kernel
+    def _rotate(
+        self, T1: T, ang_x: float, ang_y: float, ang_z: float
+    ) -> Tuple[T, T, tm.vec3, tm.vec3]:
+        return self._transform(T1, tm.rotation3d(ang_x, ang_y, ang_z))
+
+    @ti.func
+    def _transform(self, T1: T, T2: T) -> Tuple[T, T, tm.vec3, tm.vec3]:
+        aabb_min = apply(self.aabb_min, T2)
+        aabb_max = apply(self.aabb_max, T2)
+        aabb_min, aabb_max = tm.min(aabb_min, aabb_max), tm.max(aabb_min, aabb_max)
+        T_new, T_inv = merge_transformation(T1, T2)
+        return T_new, T_inv, aabb_min, aabb_max
 
     # Ray Casting
 
@@ -201,36 +219,21 @@ class Volume:
 
     @ti.func
     def to_world(self, indices: Indices) -> tm.vec3:
-        pp = tm.vec4(*indices, 1)
-        p = self.T @ pp
-        p /= p[3]
-        return p[:3]
+        return apply(indices, self.T)
 
     @ti.func
     def to_indices(self, p: tm.vec3) -> Indices:
-        pp = tm.vec4(*p, 1)
-        local = self.T_inv @ pp
-        local /= local[3]
+        local = apply(p, self.T_inv)
         indices = ti.round(local, dtype=ti.i32)
         return indices[:3]
 
 
-@ti.kernel
-def translate(T1: T, dx: float, dy: float, dz: float) -> Tuple[T, T]:
-    T_new = tm.translate(dx, dy, dz)
-    return merge_transformation(T1, T_new)
-
-
-@ti.kernel
-def scale(T1: T, sx: float, sy: float, sz: float) -> Tuple[T, T]:
-    T_new = tm.scale(sx, sy, sz)
-    return merge_transformation(T1, T_new)
-
-
-@ti.kernel
-def rotate(T1: T, ang_x: float, ang_y: float, ang_z: float) -> Tuple[T, T]:
-    T_new = tm.rotation3d(ang_x, ang_y, ang_z)
-    return merge_transformation(T1, T_new)
+@ti.func
+def apply(p, T):
+    p4 = tm.vec4(*p, 1)
+    transformed = T @ p4
+    transformed /= transformed[3]
+    return transformed[:3]
 
 
 @ti.func
